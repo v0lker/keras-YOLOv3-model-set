@@ -231,7 +231,9 @@ def custom_tiny_yolo3_body(inputs, num_anchors, num_classes, weights_path):
     y2 = base_model.layers[41].output
     y1 = DarknetConv2D(num_anchors*(num_classes+5), (1,1), name='predict_conv_1')(y1)
     y2 = DarknetConv2D(num_anchors*(num_classes+5), (1,1), name='predict_conv_2')(y2)
-    return Model(inputs, [y1,y2])
+    res = Model(inputs, [y1,y2])
+    res.save("model.h5")
+    return res
 
 
 def tiny_yolo3lite_body(inputs, num_anchors, num_classes):
