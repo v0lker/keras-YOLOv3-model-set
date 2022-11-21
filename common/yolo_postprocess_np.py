@@ -72,6 +72,7 @@ def yolo_correct_boxes(predictions, img_shape, model_input_shape):
     box_xy = predictions[..., :2]
     box_wh = predictions[..., 2:4]
     objectness = np.expand_dims(predictions[..., 4], -1)
+    # objectness.shape -> (1, 2535, 1)
     class_scores = predictions[..., 5:]
 
     # model_input_shape & image_shape should be (height, width) format
@@ -79,12 +80,18 @@ def yolo_correct_boxes(predictions, img_shape, model_input_shape):
     image_shape = np.array(img_shape, dtype='float32')
     height, width = image_shape
 
+    # raise ValueError(model_input_shape/image_shape)
     new_shape = np.round(image_shape * np.min(model_input_shape/image_shape))
+    # raise ValueError(image_shape, new_shape) # ValueError: (array([408., 612.], dtype=float32), array([277., 416.], dtype=float32))
+    
     offset = (model_input_shape-new_shape)/2./model_input_shape
+    # raise ValueError(model_input_shape/image_shape, offset)  # (array([1.0196079, 0.6797386], dtype=float32), array([0.1670673, 0.       ], dtype=float32))
     scale = model_input_shape/new_shape
+    # raise ValueError(scale) # ValueError: [1.5018051 1.       ]
     # reverse offset/scale to match (w,h) order
     offset = offset[..., ::-1]
-    scale = scale[..., ::-1]
+    # raise ValueError(offset) # ValueError: [0.        0.1670673]
+    scale = scale[..., ::-1] # [1.        1.5018051]
 
     box_xy = (box_xy - offset) * scale
     box_wh *= scale
@@ -131,11 +138,16 @@ def yolo_handle_predictions(predictions, image_shape, num_classes, max_boxes=100
         # Boxes, Classes and Scores returned from NMS
         n_boxes, n_classes, n_scores = nms_boxes(boxes, classes, scores, iou_threshold, confidence=confidence)
 
+    # boxes ~ n_boxes
+
     if n_boxes:
         boxes = np.concatenate(n_boxes)
         classes = np.concatenate(n_classes).astype('int32')
         scores = np.concatenate(n_scores)
+        # from copy import copy
+        # old_boxes = copy(boxes)
         boxes, classes, scores = filter_boxes(boxes, classes, scores, max_boxes)
+        # raise ValueError(old_boxes, boxes)
 
         return boxes, classes, scores
 

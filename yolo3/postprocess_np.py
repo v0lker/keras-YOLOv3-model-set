@@ -34,8 +34,20 @@ def yolo3_decode(predictions, anchors, num_classes, input_shape, elim_grid_sense
 
 
 def yolo3_postprocess_np(yolo_outputs, image_shape, anchors, num_classes, model_input_shape, max_boxes=100, confidence=0.1, iou_threshold=0.4, elim_grid_sense=False):
+    # yolo_outputs: (1, 13, 13, 255), (1, 26, 26, 255)  .float32
     predictions = yolo3_decode(yolo_outputs, anchors, num_classes, input_shape=model_input_shape, elim_grid_sense=elim_grid_sense)
+    # predictions[0].shape  -> (2535, 85)
     predictions = yolo_correct_boxes(predictions, image_shape, model_input_shape)
+    # predictions.shape     -> (1, 2535, 85)
+    
+    # predictions = predictions[..., :6]
+    # np.set_printoptions(suppress=True)
+    # np.set_printoptions(threshold=np.inf)
+    # raise ValueError(predictions.shape)
+    # predictions = predictions[:, :, -1]
+    # raise ValueError(predictions[:, :, -1].shape)
+    # raise ValueError(predictions > 1.0)
+    # raise ValueError(predictions[np.argwhere(predictions > 0.99)])
 
     boxes, classes, scores = yolo_handle_predictions(predictions,
                                                      image_shape,
@@ -45,6 +57,8 @@ def yolo3_postprocess_np(yolo_outputs, image_shape, anchors, num_classes, model_
                                                      iou_threshold=iou_threshold)
 
     boxes = yolo_adjust_boxes(boxes, image_shape)
+
+    # raise ValueError(boxes)
 
     return boxes, classes, scores
 

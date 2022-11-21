@@ -1134,6 +1134,7 @@ def preprocess_image(image, model_input_shape):
     """
     #resized_image = cv2.resize(image, model_input_shape[::-1], cv2.INTER_AREA)
     resized_image = letterbox_resize(image, model_input_shape[::-1])
+    resized_image.save("inference.jpg")
     image_data = np.asarray(resized_image).astype('float32')
     image_data = normalize_image(image_data)
     image_data = np.expand_dims(image_data, 0)  # Add batch dimension.

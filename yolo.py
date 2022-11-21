@@ -4,33 +4,32 @@
 Run a YOLOv3/YOLOv2 style detection model on test images.
 """
 
-import colorsys
+# import colorsys
 import os, sys, argparse
-import cv2
+# import cv2
 import time
-from timeit import default_timer as timer
+# from timeit import default_timer as timer
 import tensorflow as tf
 import numpy as np
 from tensorflow.keras import backend as K
-from tensorflow.keras.models import Model, load_model
-from tensorflow.keras.layers import Input, Lambda
-from tensorflow_model_optimization.sparsity import keras as sparsity
+# from tensorflow.keras.models import Model, load_model
+# from tensorflow.keras.layers import Input, Lambda
+# # from tensorflow_model_optimization.sparsity import keras as sparsity
+# from tensorflow import keras as sparsity
 from PIL import Image
 
-from yolo5.model import get_yolo5_model, get_yolo5_inference_model
-from yolo5.postprocess_np import yolo5_postprocess_np
+# # from yolo5.model import get_yolo5_model, get_yolo5_inference_model
+# # from yolo5.postprocess_np import yolo5_postprocess_np
 from yolo3.model import get_yolo3_model, get_yolo3_inference_model
 from yolo3.postprocess_np import yolo3_postprocess_np
-from yolo2.model import get_yolo2_model, get_yolo2_inference_model
-from yolo2.postprocess_np import yolo2_postprocess_np
+# # from yolo2.model import get_yolo2_model, get_yolo2_inference_model
+# # from yolo2.postprocess_np import yolo2_postprocess_np
 from common.data_utils import preprocess_image
-from common.utils import get_classes, get_anchors, get_colors, draw_boxes, optimize_tf_gpu
-#from tensorflow.keras.utils import multi_gpu_model
+from common.utils import get_classes, get_anchors, get_colors, draw_boxes
+# #from tensorflow.keras.utils import multi_gpu_model
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
-optimize_tf_gpu(tf, K)
 
 #tf.enable_eager_execution()
 
@@ -68,7 +67,7 @@ class YOLO_np(object):
         K.set_learning_phase(0)
         self.yolo_model = self._generate_model()
 
-    def _generate_model(self):
+    def _generate_model(self) -> "tf.keras.engine.functional.Functional":
         '''to generate the bounding boxes'''
         weights_path = os.path.expanduser(self.weights_path)
         assert weights_path.endswith('.h5'), 'Keras model or weights must be a .h5 file.'
@@ -123,6 +122,8 @@ class YOLO_np(object):
         start = time.time()
         out_boxes, out_classes, out_scores = self.predict(image_data, image_shape)
         print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
+        for box, score in zip(out_boxes, out_scores):
+            print(f"{box} ({score})")
         end = time.time()
         print("Inference time: {:.8f}s".format(end - start))
 
@@ -136,18 +137,13 @@ class YOLO_np(object):
 
     def predict(self, image_data, image_shape):
         num_anchors = len(self.anchors)
-        if self.model_type.startswith('scaled_yolo4_') or self.model_type.startswith('yolo5_'):
-            # Scaled-YOLOv4 & YOLOv5 entrance, enable "elim_grid_sense" by default
-            out_boxes, out_classes, out_scores = yolo5_postprocess_np(self.yolo_model.predict(image_data), image_shape, self.anchors, len(self.class_names), self.model_input_shape, max_boxes=100, confidence=self.score, iou_threshold=self.iou, elim_grid_sense=True)
-        elif self.model_type.startswith('yolo3_') or self.model_type.startswith('yolo4_') or \
-             self.model_type.startswith('tiny_yolo3_') or self.model_type.startswith('tiny_yolo4_'):
-            # YOLOv3 & v4 entrance
-            out_boxes, out_classes, out_scores = yolo3_postprocess_np(self.yolo_model.predict(image_data), image_shape, self.anchors, len(self.class_names), self.model_input_shape, max_boxes=100, confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
-        elif self.model_type.startswith('yolo2_') or self.model_type.startswith('tiny_yolo2_'):
-            # YOLOv2 entrance
-            out_boxes, out_classes, out_scores = yolo2_postprocess_np(self.yolo_model.predict(image_data), image_shape, self.anchors, len(self.class_names), self.model_input_shape, max_boxes=100, confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
-        else:
-            raise ValueError('Unsupported model type')
+        # raise ValueError(self.yolo_model.input_shape)
+        # raise ValueError(self.yolo_model.output_shape)
+        outputs = self.yolo_model.predict(image_data)
+        o1, o2 = outputs
+        # self.yolo_model.save("a.h5")
+        # raise ValueError("siema", o1.shape, o2.shape)
+        out_boxes, out_classes, out_scores = yolo3_postprocess_np(outputs, image_shape, self.anchors, len(self.class_names), self.model_input_shape, max_boxes=100, confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
 
         return out_boxes, out_classes, out_scores
 
@@ -190,18 +186,7 @@ class YOLO(object):
         #so we can calculate feature layers number to get model type
         num_feature_layers = num_anchors//3
 
-        if self.model_type.startswith('scaled_yolo4_') or self.model_type.startswith('yolo5_'):
-            # Scaled-YOLOv4 & YOLOv5 entrance, enable "elim_grid_sense" by default
-            inference_model = get_yolo5_inference_model(self.model_type, self.anchors, num_classes, weights_path=weights_path, input_shape=self.model_input_shape + (3,), confidence=self.score, iou_threshold=self.iou, elim_grid_sense=True)
-        elif self.model_type.startswith('yolo3_') or self.model_type.startswith('yolo4_') or \
-             self.model_type.startswith('tiny_yolo3_') or self.model_type.startswith('tiny_yolo4_'):
-            # YOLOv3 & v4 entrance
-            inference_model = get_yolo3_inference_model(self.model_type, self.anchors, num_classes, weights_path=weights_path, input_shape=self.model_input_shape + (3,), confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
-        elif self.model_type.startswith('yolo2_') or self.model_type.startswith('tiny_yolo2_'):
-            # YOLOv2 entrance
-            inference_model = get_yolo2_inference_model(self.model_type, self.anchors, num_classes, weights_path=weights_path, input_shape=self.model_input_shape + (3,), confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
-        else:
-            raise ValueError('Unsupported model type')
+        inference_model = get_yolo3_inference_model(self.model_type, self.anchors, num_classes, weights_path=weights_path, input_shape=self.model_input_shape + (3,), confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
 
         inference_model.summary()
         return inference_model
@@ -253,73 +238,14 @@ class YOLO(object):
 
 
 
-def detect_video(yolo, video_path, output_path=""):
-    import cv2
-    vid = cv2.VideoCapture(0 if video_path == '0' else video_path)
-    if not vid.isOpened():
-        raise IOError("Couldn't open webcam or video")
 
-    isOutput = True if output_path != "" else False
-    if isOutput:
-        # here we encode the video to MPEG-4 for better compatibility, you can use ffmpeg later
-        # to convert it to x264 to reduce file size:
-        # ffmpeg -i test.mp4 -vcodec libx264 -f mp4 test_264.mp4
-        #
-        #video_FourCC    = cv2.VideoWriter_fourcc(*'XVID') if video_path == '0' else cv2.VideoWriter_fourcc(*"mp4v")
-        video_FourCC    = cv2.VideoWriter_fourcc(*"mp4v")
-        video_fps       = vid.get(cv2.CAP_PROP_FPS)
-        video_size      = (int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                            int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        #print("!!! TYPE:", type(output_path), type(video_FourCC), type(video_fps), type(video_size))
-        out = cv2.VideoWriter(output_path, video_FourCC, (5. if video_path == '0' else video_fps), video_size)
-
-    accum_time = 0
-    curr_fps = 0
-    fps = "FPS: ??"
-    prev_time = timer()
-    while True:
-        ret, frame = vid.read()
-        if ret != True:
-            break
-
-        image = Image.fromarray(frame)
-        image, _, _, _ = yolo.detect_image(image)
-        result = np.asarray(image)
-        curr_time = timer()
-        exec_time = curr_time - prev_time
-        prev_time = curr_time
-        accum_time = accum_time + exec_time
-        curr_fps = curr_fps + 1
-        if accum_time > 1:
-            accum_time = accum_time - 1
-            fps = "FPS: " + str(curr_fps)
-            curr_fps = 0
-        cv2.putText(result, text=fps, org=(3, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.50, color=(255, 0, 0), thickness=2)
-        cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-        cv2.imshow("result", result)
-        if isOutput:
-            out.write(result)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    # Release everything if job is finished
-    vid.release()
-    if isOutput:
-        out.release()
-    cv2.destroyAllWindows()
-
-
-def detect_img(yolo):
-    while True:
-        img = input('Input image filename:')
-        try:
-            image = Image.open(img).convert('RGB')
-        except:
-            print('Open Error! Try again!')
-            continue
-        else:
-            r_image, _, _, _ = yolo.detect_image(image)
-            r_image.show()
+from pathlib import Path
+def detect_img(yolo, img: Path):
+    image = Image.open(img).convert('RGB')
+    r_image, _, _, _ = yolo.detect_image(image)
+    r_image: Image
+    r_image.save("a.jpg")
+    # r_image.show()
 
 
 def main():
@@ -369,13 +295,10 @@ def main():
         #'--gpu_num', type=int,
         #help='Number of GPU to use, default ' + str(YOLO.get_defaults("gpu_num"))
     #)
+    from pathlib import Path
     parser.add_argument(
-        '--image', default=False, action="store_true",
-        help='Image detection mode, will ignore all positional arguments'
-    )
-    '''
-    Command line positional arguments -- for video detection mode
-    '''
+        '--image', required=True, type=Path)
+    
     parser.add_argument(
         "--input", nargs='?', type=str,required=False,default='./path2your_video',
         help = "Video input path"
@@ -407,31 +330,7 @@ def main():
 
     # get wrapped inference object
     yolo = YOLO_np(**vars(args))
-
-    if args.dump_model:
-        """
-        Dump out training model to inference model
-        """
-        if not args.output_model_file:
-            raise ValueError('output model file is not specified')
-
-        print('Dumping out training model to inference model')
-        yolo.dump_model_file(args.output_model_file)
-        sys.exit()
-
-    if args.image:
-        """
-        Image detection mode, disregard any remaining command line arguments
-        """
-        print("Image detection mode")
-        if "input" in args:
-            print(" Ignoring remaining command line arguments: " + args.input + "," + args.output)
-        detect_img(yolo)
-    elif "input" in args:
-        detect_video(yolo, args.input, args.output)
-    else:
-        print("Must specify at least video_input_path.  See usage with --help.")
-
+    detect_img(yolo, args.image)
 
 if __name__ == '__main__':
     main()
