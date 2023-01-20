@@ -18,6 +18,8 @@ def yolo_decode(prediction, anchors, num_classes, input_shape, scale_x_y=None, u
 
     prediction = np.reshape(prediction,
                             (batch_size, grid_shape[0] * grid_shape[1] * num_anchors, num_classes + 5))
+    
+    # (prediction.shape) -> (1, 507(=13*13*3), 85)
 
     ################################
     # generate x_y_offset grid map
@@ -33,29 +35,45 @@ def yolo_decode(prediction, anchors, num_classes, input_shape, scale_x_y=None, u
     x_y_offset = np.reshape(x_y_offset, (-1, 2))
     x_y_offset = np.expand_dims(x_y_offset, 0)
 
+    # raise ValueError(x_y_offset, x_y_offset.shape)
+        #     [10, 12],
+        #     [10, 12],
+        #     [10, 12],
+        #     [11, 12],
+        #     [11, 12],
+        #     [11, 12],
+        #     [12, 12],
+        #     [12, 12],
+        #     [12, 12]]]), (1, 507, 2))
+
     ################################
 
     # Log space transform of the height and width
     anchors = np.tile(anchors, (grid_shape[0] * grid_shape[1], 1))
     anchors = np.expand_dims(anchors, 0)
 
+    # raise ValueError(prediction.shape)  # ValueError: (1, 507, 85)
+
+    np.set_printoptions(threshold=np.inf, suppress=True)
+    
+    
     if scale_x_y:
         # Eliminate grid sensitivity trick involved in YOLOv4
-        #
-        # Reference Paper & code:
-        #     "YOLOv4: Optimal Speed and Accuracy of Object Detection"
-        #     https://arxiv.org/abs/2004.10934
-        #     https://github.com/opencv/opencv/issues/17148
-        #
-        box_xy_tmp = expit(prediction[..., :2]) * scale_x_y - (scale_x_y - 1) / 2
-        box_xy = (box_xy_tmp + x_y_offset) / np.array(grid_shape)[::-1]
+        pass # XXX
     else:
         box_xy = (expit(prediction[..., :2]) + x_y_offset) / np.array(grid_shape)[::-1]
     box_wh = (np.exp(prediction[..., 2:4]) * anchors) / np.array(input_shape)[::-1]
+    
+#     raise ValueError(box_wh)
+#   ...
+#   [0.1438267  0.18352431]
+#   [0.19260505 0.40852489]
+#   [0.78857188 0.65847298]]]
 
     # Sigmoid objectness scores
     objectness = expit(prediction[..., 4])  # p_o (objectness score)
     objectness = np.expand_dims(objectness, -1)  # To make the same number of values for axis 0 and 1
+    # raise ValueError(objectness.shape)  # (1, 507, 1), in [0.0, 1.0]
 
     if use_softmax:
         # Softmax class scores
@@ -63,6 +81,7 @@ def yolo_decode(prediction, anchors, num_classes, input_shape, scale_x_y=None, u
     else:
         # Sigmoid class scores
         class_scores = expit(prediction[..., 5:])
+    # raise ValueError(class_scores.shape)
 
     return np.concatenate([box_xy, box_wh, objectness, class_scores], axis=2)
 

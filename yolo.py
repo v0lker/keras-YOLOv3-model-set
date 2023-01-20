@@ -39,7 +39,7 @@ default_config = {
         "pruning_model": False,
         "anchors_path": os.path.join('configs', 'tiny_yolo3_anchors.txt'),
         "classes_path": os.path.join('configs', 'coco_classes.txt'),
-        "score" : 0.1,
+        "score" : 0.7,
         "iou" : 0.4,
         "model_input_shape" : (416, 416),
         "elim_grid_sense": False,
@@ -135,14 +135,25 @@ class YOLO_np(object):
         return Image.fromarray(image_array), out_boxes, out_classnames, out_scores
 
 
-    def predict(self, image_data, image_shape):
+    def predict(self, image_data: np.ndarray, image_shape):
         num_anchors = len(self.anchors)
         # raise ValueError(self.yolo_model.input_shape)
         # raise ValueError(self.yolo_model.output_shape)
-        outputs = self.yolo_model.predict(image_data)
-        o1, o2 = outputs
+        # self.yolo_model.save("/home/mbeg/wtf.h5")
+        # from tensorflow import keras
+        # from pathlib import Path
+        # p = Path("/home/mbeg/github/mcu-tools/quant_float_output/lce.tflite")
+        # from lce_utils import LCEMicroInterpreter
+        # import numpy as np
+        # interpreter = LCEMicroInterpreter(p.read_bytes(), arena_size_bytes=10*1000*1000)
+        # image_data = ((image_data * 255) - 128).astype(np.int8)
+        # outputs = interpreter.predict(image_data)
+        # raise ValueError(res[0].shape)
+        # o1, o2 = outputs
+        # raise ValueError(np.min(o1.reshape(-1)), np.max(o1.reshape(-1)))
         # self.yolo_model.save("a.h5")
-        # raise ValueError("siema", o1.shape, o2.shape)
+        # raise ValueError("aaa", o1.shape, o2.shape)
+        outputs = self.yolo_model.predict(image_data)
         out_boxes, out_classes, out_scores = yolo3_postprocess_np(outputs, image_shape, self.anchors, len(self.class_names), self.model_input_shape, max_boxes=100, confidence=self.score, iou_threshold=self.iou, elim_grid_sense=self.elim_grid_sense)
 
         return out_boxes, out_classes, out_scores
@@ -244,7 +255,7 @@ def detect_img(yolo, img: Path):
     image = Image.open(img).convert('RGB')
     r_image, _, _, _ = yolo.detect_image(image)
     r_image: Image
-    r_image.save("a.jpg")
+    r_image.save("bounding_boxes_applied_to_rescaled_image.jpg")
     # r_image.show()
 
 
