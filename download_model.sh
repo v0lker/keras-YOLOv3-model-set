@@ -1,14 +1,15 @@
 #!/bin/bash
 
 set -eux
+VENV=$HOME/work/venvs/yolo-mateusz
 
 sudo apt-get install qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools
 
-if [[ -d venv ]]; then
+if [[ -d $VENV ]]; then
 	echo "'venv' directory found, skipping it's creation.."
 else
-	python3 -m venv venv
-	source venv/bin/activate
+	python3 -m venv $VENV
+	source $VENV/bin/activate
 	pip3 install -r requirements.txt
 fi
 
