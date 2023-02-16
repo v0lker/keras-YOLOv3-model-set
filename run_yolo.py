@@ -13,9 +13,18 @@ import yolo3.postprocess_np
 
 from matplotlib import pyplot as plt
 
+NUM_COCO_CLASSES = 80
 NUM_BBOXES_PER_CELL = 3
 USE_MAX_LABELS = 2
-USE_MAX_BOXES = 10
+USE_MAX_BOXES = 64
+
+THRESH_OBJNESS = 0.3
+THRESH_NMS_IOU = 0.666
+THRESH_CLASS = 0.1
+
+
+
+
 DUMP_BLOCKS = False
 DUMP_OBJNESS = False
 DUMP_P_CLASS = False
@@ -39,7 +48,7 @@ try:
         class_names = [x.strip() for x in fil.readlines()]
 except Exception as e:
     print(e)
-    class_names = [str(n) for n in range(80)]
+    class_names = [str(n) for n in range(NUM_COCO_CLASSES)]
     class_names[0] = "human"
 
 
@@ -172,7 +181,7 @@ def box_diou(boxes):
     return diou
 
 
-def nms_boxes(boxes, classes, scores, iou_threshold, confidence):
+def nms_boxes(boxes, classes, scores, confidence):
     nboxes, nclasses, nscores = [], [], []
     for c in set(classes):
         # handle data for one class
@@ -208,7 +217,7 @@ def nms_boxes(boxes, classes, scores, iou_threshold, confidence):
             s_nms = s_nms[1:]
 
             # normal Hard-NMS
-            keep_mask = np.where(iou <= iou_threshold)[0]
+            keep_mask = np.where(iou <= THRESH_IOU)[0]
 
             # keep needed box for next loop
             b_nms = b_nms[keep_mask]
@@ -271,7 +280,7 @@ def yolo_adjust_boxes(boxes, img_shape):
 
     return np.array(adjusted_boxes,dtype=np.int32)
 
-def yolo_handle_predictions(predictions, image_shape, num_classes, max_boxes=100, confidence=0.1, iou_threshold=0.4, use_cluster_nms=False, use_wbf=False):
+def yolo_handle_predictions(predictions, image_shape, num_classes, max_boxes=100, confidence=0.1, iou_threshold=THRESH_NMS_IOU, use_cluster_nms=False, use_wbf=False):
     boxes = predictions[:, :, :4]
     box_confidences = np.expand_dims(predictions[:, :, 4], -1)
     box_class_probs = predictions[:, :, 5:]
@@ -338,7 +347,7 @@ def run_tflite_interpreter(tflite_model_file_bytes, test_data):
 
 
 def decode_interpreter_output1(interpreter, anchors, classes, confidence=0.7,
-    iou_threshold=0.4, max_boxes=100):
+    iou_threshold=THRESH_NMS_IOU, max_boxes=100):
 
     """
     original decoding from github.com:bieganski/keras-YOLOv3-model-set
@@ -652,7 +661,7 @@ class BBox:
 
     def __repr__(self):
         class_probs = ", ".join([f"{(100*c[0]):.1f}% >{c[1]}<" for c in self.guess_class()])
-        return f"{class_probs} @ ({self.xmin:.3f}, {self.ymin:.3f}) / ({self.xmax:.3f}, {self.ymax:.3f})"
+        return f"obj: {self.objness:.3f}, {class_probs} @ ({self.xmin:.3f}, {self.ymin:.3f}) / ({self.xmax:.3f}, {self.ymax:.3f})"
 
 
     def __str__(self):
@@ -1003,34 +1012,37 @@ def do_nms(boxes, nms_thresh, class_thresh=0.0):
 
 
 
-def draw_boxes(filename, boxes, scale=False):
+def draw_boxes(filename, boxes, scale=False, ref_boxes=None):
     data = plt.imread(filename)
     plt.imshow(data)
     # get the context for drawing boxes
     ax = plt.gca()
     img_width, img_height, _ = data.shape
 
-    for box in boxes:
-        y1, x1, y2, x2 = box.ymin, box.xmin, box.ymax, box.xmax
-        width, height = x2 - x1, y2 - y1
+    def dbox(boxes, colour):
+        for box in boxes:
+            y1, x1, y2, x2 = box.ymin, box.xmin, box.ymax, box.xmax
+            width, height = x2 - x1, y2 - y1
 
-        # coords and size are normalised to image size
-        if scale:
-            x1, x2, width = img_width * np.array([x1, x2, width])
-            y1, y2, height = img_height * np.array([y1, y2, height])
+            # coords and size are normalised to image size
+            if scale:
+                x1, x2, width = img_width * np.array([x1, x2, width])
+                y1, y2, height = img_height * np.array([y1, y2, height])
 
-        #print(f"BBBBB x,y,w,h: {x1}, {y1}, {width}, {height}")
-        rect = plt.Rectangle((x1, y1), width, height, fill=False, color='green')
-        ax.add_patch(rect)
+            #print(f"BBBBB x,y,w,h: {x1}, {y1}, {width}, {height}")
+            rect = plt.Rectangle((x1, y1), width, height, fill=False, color=colour)
+            ax.add_patch(rect)
 
-        # draw text and score in top left corner
-        # show multiple interpretations, if they are close
-        thresh = .8 * box.guess_class()[0][0]
-        what = [f"{x[1]} ({int(100*x[0])}%)" for x in box.guess_class() if x[0] > thresh]
-        what = what[:USE_MAX_LABELS]
-        label = ", ".join(what)
-        plt.text(x1, y1, label, backgroundcolor='green')
+            # draw text and score in top left corner
+            # show multiple interpretations, if they are close
+            thresh = .8 * box.guess_class()[0][0]
+            what = [f"{x[1]} ({int(100*x[0])}%)" for x in box.guess_class() if x[0] > thresh]
+            what = what[:USE_MAX_LABELS]
+            label = ", ".join(what)
+            plt.text(x1, y1, label, backgroundcolor=colour)
 
+    dbox(boxes, 'red')
+    if ref_boxes: dbox(ref_boxes, 'green')
     plt.show()
 
 
@@ -1066,12 +1078,39 @@ def dump_array(outf_name: str, data_type: str, np_array):
         print("};", file=outf)
         print("#endif", file=outf)
 
+def human_box(p_obj_pct, xmin, ymin, xmax, ymax, p_human_pct):
+    p_class = np.array([p_human_pct/100.0] + ([0] * (NUM_COCO_CLASSES-1)))
+    bb = BBox(xmin, ymin, xmax, ymax, objness=p_obj_pct/100.0, class_probs=p_class)
+    return bb
+
+# "/home/volker/Documents/806-yolo_decode/tiny_yolo_v3size320.int8.tflite-2023-01-31.tflite"
+ref_boxes = [
+    human_box(58.7, 0.00, 0.36, 0.31, 0.78, 58.7),
+    human_box(37.1, 0.16, 0.34, 0.53, 0.77, 37.1),
+    human_box(93.4, 0.29, 0.34, 0.60, 0.77, 93.4),
+    human_box(70.7, 0.41, 0.33, 0.72, 0.75, 70.7),
+    human_box(85.3, 0.47, 0.31, 0.84, 0.74, 85.3),
+    human_box(33.1, 0.52, 0.34, 0.96, 0.76, 33.1),
+    human_box(97.6, 0.70, 0.36, 1.01, 0.78, 97.6),
+]
+
+# "/home/volker/Documents/806-yolo_decode/tiny_yolo_v3size320.int8.tflite-2023-02-15.tflite"
+ref_boxes = [
+    human_box(0.976*100, 0.699, 0.356, 1.010, 0.778, 97.6),
+    human_box(0.934*100, 0.286, 0.343, 0.597, 0.765, 93.4),
+    human_box(0.853*100, 0.473, 0.315, 0.844, 0.737, 85.3),
+    human_box(0.707*100, 0.407, 0.330, 0.719, 0.752, 70.7),
+    human_box(0.587*100, 0.003, 0.356, 0.314, 0.778, 58.7),
+]
+
+ref_boxes = None
 
 
 if "__main__" == __name__:
     # model file is generated by stuff in the keras-YOLOv3-model-set repo, see notes
     #model_file = "tiny_yolo_v3_416.tflite"
-    model_file = "tiny_yolo_v3size320.int8.tflite"
+    #model_file = "tiny_yolo_v3size320.int8.tflite"
+    model_file = "/home/volker/Documents/806-yolo_decode/tiny_yolo_v3size320.int8.tflite-2023-02-15.tflite"
 
     # defined in the keras-YOLOv3-model-set repo, duplicated here for brevity
     # supposed to be used with   26x26                   13x13 ???
@@ -1119,4 +1158,4 @@ if "__main__" == __name__:
         print(b)
 
     if len(bboxes) > 0:
-        draw_boxes(image_file, bboxes, scale)
+        draw_boxes(image_file, bboxes, scale, ref_boxes=ref_boxes)
